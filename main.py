@@ -95,6 +95,7 @@ async def run_signal(background_tasks: BackgroundTasks):
         "status": "running",
         "check_url": f"/signals/{thread_id}"
     }
+# Note: The actual pipeline logic is in run_pipeline, which is called in the background.
 
 
 async def run_pipeline(thread_id: str):
