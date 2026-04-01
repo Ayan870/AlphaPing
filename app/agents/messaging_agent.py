@@ -1,16 +1,7 @@
 # app/agents/messaging_agent.py
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
 from app.signal_state import SignalState
-
-load_dotenv()
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
-    temperature=0.4
-)
+from app.core.llm import get_llm
 
 def messaging_agent(state: SignalState) -> SignalState:
     """
@@ -69,8 +60,9 @@ Signal Data:
 Write the WhatsApp signal message now:
 """
 
+    llm      = get_llm(temperature=0.4)
     response = llm.invoke(prompt)
-    message = response.content
+    message = response.content if hasattr(response, 'content') else response
 
     print("Agent 3: Message formatted.\n")
     print("--- WhatsApp Message Preview ---")

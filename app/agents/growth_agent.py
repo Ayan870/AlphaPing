@@ -1,16 +1,10 @@
 # app/agents/growth_agent.py
 import os
 from datetime import datetime
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
 
-load_dotenv()
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
-    temperature=0.6
-)
+from click import prompt
+from app.core import llm
+from app.core.llm import get_llm
 
 def generate_daily_recap(performance_records: list) -> str:
     """
@@ -55,7 +49,9 @@ Today's performance: {wins} wins, {losses} losses, {pending} pending out of {tot
 Win rate: {win_rate}%.
 Be honest, professional, and never promise future profits.
 """
-    commentary = llm.invoke(prompt).content
+    llm = get_llm(temperature=0.5)
+    commentary = llm.invoke(prompt)
+    commentary = commentary.content if hasattr(commentary, 'content') else commentary
 
     recap = (
         f"📊 *AlphaPing Daily Recap*\n"
@@ -94,7 +90,10 @@ Stats: {stats_text}
 Rules: honest, no guaranteed profit claims, educational tone, end with risk disclaimer.
 Format: Tweet 1: ... Tweet 2: ... Tweet 3: ...
 """
-    twitter = llm.invoke(twitter_prompt).content
+    
+    llm = get_llm(temperature=0.5)
+    twitter = llm.invoke(twitter_prompt)
+    twitter = twitter.content if hasattr(twitter, 'content') else twitter
 
     # YouTube short script
     youtube_prompt = f"""
@@ -105,7 +104,10 @@ Tone: educational, transparent, beginner-friendly.
 Include: what the signal was, why we sent it, what happened.
 End with risk disclaimer.
 """
-    youtube = llm.invoke(youtube_prompt).content
+    
+    llm = get_llm(temperature=0.5)
+    youtube = llm.invoke(youtube_prompt)
+    youtube = youtube.content if hasattr(youtube, 'content') else youtube
 
     print("Agent 6: Content generated.\n")
     return {

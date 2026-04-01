@@ -1,18 +1,8 @@
 # app/agents/research_agent.py
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
 from app.market_data import get_market_snapshot
 from app.signal_state import SignalState
-
-load_dotenv()
-
-# Initialize Gemini
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
-    temperature=0.3
-)
+from app.core.llm import get_llm
 
 def research_agent(state: SignalState) -> SignalState:
     """
@@ -54,8 +44,9 @@ Market Data:
 
     # Step 3 — ask Gemini to summarize
     print("Agent 1: Asking Gemini to analyze...")
+    llm      = get_llm(temperature=0.3)
     response = llm.invoke(prompt)
-    research_summary = response.content
+    research_summary = response.content if hasattr(response, 'content') else response   
 
     print(f"Agent 1: Done.\n")
     print(f"--- Research Summary ---")
