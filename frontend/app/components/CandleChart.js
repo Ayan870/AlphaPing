@@ -99,8 +99,6 @@ export default function CandleChart({ activeSignal = null }) {
     const highs   = candles.map(c => c.high)
     const lows    = candles.map(c => c.low)
     const closes  = candles.map(c => c.close)
-    const volumes = candles.map(c => c.volume)
-    const colors  = candles.map(c => c.close >= c.open ? '#26a69a' : '#ef5350')
 
     const candlestickTrace = {
       type: 'candlestick',
@@ -114,14 +112,7 @@ export default function CandleChart({ activeSignal = null }) {
       decreasing: { line: { color: '#ef5350' }, fillcolor: '#ef5350' },
     }
 
-    const volumeTrace = {
-      type:    'bar',
-      x:       times,
-      y:       volumes,
-      name:    'Volume',
-      marker:  { color: colors, opacity: 0.5 },
-      yaxis:   'y2',
-    }
+    // volume trace removed — chart will display candlesticks only
 
     // Build signal level lines if signal exists for current pair
     const shapes = []
@@ -182,13 +173,7 @@ export default function CandleChart({ activeSignal = null }) {
         side:       'right',
         tickformat: '.0f',
       },
-      yaxis2: {
-        overlaying: 'y',
-        side:       'left',
-        showgrid:   false,
-        tickformat: '.0s',
-        tickfont:   { size: 9 },
-      },
+      // no secondary y-axis (volume) — showing candles only
       legend:    { x: 0, y: 1, bgcolor: 'transparent' },
       hovermode: 'x unified',
       hoverlabel: {
@@ -208,7 +193,7 @@ export default function CandleChart({ activeSignal = null }) {
     import('plotly.js-dist-min').then(Plotly => {
       Plotly.react(
         plotRef.current,
-        [candlestickTrace, volumeTrace],
+        [candlestickTrace],
         layout,
         config
       )

@@ -15,22 +15,24 @@ export default function Dashboard() {
   const [running, setRunning]         = useState(false)
   const [activeTab, setActiveTab]     = useState('dashboard')
   const [activeModel, setActiveModel] = useState('ollama')
+  const [performance, setPerformance] = useState(null)
 
   const fetchData = async () => {
     try {
-      const [healthRes, signalsRes, pendingRes, subsRes, modelRes] = await Promise.all([
+      const [healthRes, signalsRes, pendingRes, subsRes, modelRes, perfRes] = await Promise.all([
         axios.get(`${API}/health`),
         axios.get(`${API}/signals/`),
         axios.get(`${API}/signals/pending`),
         axios.get(`${API}/subscribers/`),
         axios.get(`${API}/signals/model/status`),
+        axios.get(`${API}/signals/performance/summary`),
       ])
       setHealth(healthRes.data)
       setSignals(signalsRes.data.signals || [])
       setPending(pendingRes.data.pending || [])
       setSubscribers(subsRes.data.subscribers || [])
       setActiveModel(modelRes.data.active_model || 'ollama')
-      
+      setPerformance(perfRes.data)
     } catch (err) {
       console.error('Failed to fetch data:', err)
     } finally {
@@ -63,6 +65,7 @@ export default function Dashboard() {
       alert('Failed to process signal')
     }
   }
+
   const switchModel = async (model) => {
     try {
       await axios.post(`${API}/signals/model/switch/${model}`)
@@ -71,7 +74,7 @@ export default function Dashboard() {
       alert('Failed to switch model')
     }
   }
-  
+
   useEffect(() => {
     fetchData()
     const interval = setInterval(fetchData, 3000)
@@ -86,18 +89,20 @@ export default function Dashboard() {
 
   const sentSignals    = signals.filter(s => s.delivery_status === 'sent')
   const noTradeSignals = signals.filter(s => s.delivery_status === 'no_trade')
-  const latestSignal = sentSignals.length > 0 ? sentSignals[0] : null
+  const latestSignal   = sentSignals.length > 0 ? sentSignals[0] : null
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      {/* Header */}
-<header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
+
+      {/* ── Header ── */}
+      <header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-blue-400">⚡ AlphaPing</h1>
             <p className="text-gray-400 text-sm">WhatsApp-First Crypto Signal Copilot</p>
           </div>
           <div className="flex items-center gap-4">
+
             {/* Model Switcher */}
             <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
               <button
@@ -134,7 +139,7 @@ export default function Dashboard() {
               {health?.status === 'healthy' ? 'Backend Online' : 'Backend Offline'}
             </div>
 
-            {/* Run Pipeline Button */}
+            {/* Run Pipeline */}
             <button
               onClick={runSignal}
               disabled={running}
@@ -173,13 +178,14 @@ export default function Dashboard() {
         {/* ── Dashboard Tab ── */}
         {activeTab === 'dashboard' && (
           <div>
-            {/* Stats */}
-            <div className="grid grid-cols-4 gap-4 mb-6">
+
+            {/* Main Stats */}
+            <div className="grid grid-cols-4 gap-4 mb-4">
               {[
-                { label: 'Total Signals', value: signals.length,        color: 'blue'   },
-                { label: 'Signals Sent',  value: sentSignals.length,    color: 'green'  },
-                { label: 'No Trade',      value: noTradeSignals.length, color: 'yellow' },
-                { label: 'Subscribers',   value: subscribers.length,    color: 'purple' },
+                { label: 'Total Signals', value: signals.length,                    color: 'blue'   },
+                { label: 'Signals Sent',  value: sentSignals.length,                color: 'green'  },
+                { label: 'Win Rate',      value: `${performance?.win_rate || 0}%`,  color: 'yellow' },
+                { label: 'Subscribers',   value: subscribers.length,                color: 'purple' },
               ].map(stat => (
                 <div key={stat.label}
                   className="bg-gray-900 rounded-xl p-4 border border-gray-800">
@@ -191,12 +197,32 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Live Candlestick Chart */}
+            {/* Performance Row */}
+            {performance && (
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                {[
+                  { label: '✅ Wins',    value: performance.wins,    color: 'green'  },
+                  { label: '❌ Losses',  value: performance.losses,  color: 'red'    },
+                  { label: '⚡ Partial', value: performance.partial, color: 'yellow' },
+                  { label: '⏳ Pending', value: performance.pending, color: 'gray'   },
+                ].map(stat => (
+                  <div key={stat.label}
+                    className="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                    <p className="text-gray-400 text-xs">{stat.label}</p>
+                    <p className={`text-2xl font-bold mt-1 text-${stat.color}-400`}>
+                      {stat.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Live Chart */}
             <div className="mb-6">
               <CandleChart activeSignal={latestSignal} />
             </div>
 
-            {/* Pending alert */}
+            {/* Pending Alert */}
             {pending.length > 0 && (
               <div className="bg-yellow-900 border border-yellow-700 rounded-xl p-4 mb-6">
                 <p className="text-yellow-400 font-bold">
@@ -211,7 +237,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Recent signals */}
+            {/* Recent Signals */}
             <div className="bg-gray-900 rounded-xl border border-gray-800">
               <div className="p-4 border-b border-gray-800">
                 <h2 className="font-bold text-lg">Recent Signal Runs</h2>
@@ -279,28 +305,45 @@ export default function Dashboard() {
                 {pending.map(signal => (
                   <div key={signal.thread_id}
                     className="bg-gray-900 rounded-xl border border-yellow-700 p-6">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-3 mb-3">
-                          <span className={`text-xl font-bold ${
-                            signal.direction === 'LONG' ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {signal.direction === 'LONG' ? '🟢 LONG' : '🔴 SHORT'}
-                          </span>
-                          <span className="text-white font-bold">{signal.pair}</span>
-                          <span className="bg-blue-900 text-blue-400 px-2 py-1 rounded text-sm">
-                            {signal.confidence}/100 confidence
-                          </span>
-                          <span className="bg-gray-800 text-gray-400 px-2 py-1 rounded text-sm">
-                            {signal.setup_type}
-                          </span>
-                        </div>
-                        <p className="text-gray-400 text-sm max-w-2xl">
-                          {signal.research_summary}
-                        </p>
-                      </div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className={`text-xl font-bold ${
+                        signal.direction === 'LONG' ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {signal.direction === 'LONG' ? '🟢 LONG' : '🔴 SHORT'}
+                      </span>
+                      <span className="text-white font-bold">{signal.pair}</span>
+                      <span className="bg-blue-900 text-blue-400 px-2 py-1 rounded text-sm">
+                        {signal.confidence}/100 confidence
+                      </span>
+                      <span className="bg-gray-800 text-gray-400 px-2 py-1 rounded text-sm">
+                        {signal.setup_type}
+                      </span>
                     </div>
-                    <div className="flex gap-3 mt-4">
+                    <p className="text-gray-400 text-sm mb-4">{signal.research_summary}</p>
+
+                    {/* Signal levels */}
+                    {signal.entry_low && (
+                      <div className="grid grid-cols-3 gap-2 mb-4 text-xs">
+                        <div className="bg-green-900 rounded p-2">
+                          <p className="text-green-400">Entry</p>
+                          <p className="text-white font-bold">
+                            ${signal.entry_low?.toLocaleString()} - ${signal.entry_high?.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="bg-red-900 rounded p-2">
+                          <p className="text-red-400">Stop Loss</p>
+                          <p className="text-white font-bold">${signal.stop_loss?.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-blue-900 rounded p-2">
+                          <p className="text-blue-400">TP1 / TP2 / TP3</p>
+                          <p className="text-white font-bold">
+                            ${signal.tp1?.toLocaleString()} / ${signal.tp2?.toLocaleString()} / ${signal.tp3?.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-3">
                       <button
                         onClick={() => approveSignal(signal.thread_id, true)}
                         className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg font-medium transition"
@@ -331,48 +374,64 @@ export default function Dashboard() {
               <table className="w-full">
                 <thead className="bg-gray-800">
                   <tr>
-                    {['Pair','Direction','Confidence','Setup','Status','Date'].map(h => (
-                      <th key={h}
-                        className="px-4 py-3 text-left text-gray-400 text-sm">
+                    {['Pair','Direction','Confidence','Setup','Status','Result','Date'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-gray-400 text-sm">
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
-                  {signals.map(signal => (
-                    <tr key={signal.id} className="hover:bg-gray-800 transition">
-                      <td className="px-4 py-3 text-sm">{signal.pair || '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className={`text-sm font-bold ${
-                          signal.direction === 'LONG'  ? 'text-green-400' :
-                          signal.direction === 'SHORT' ? 'text-red-400'   :
-                          'text-gray-500'
-                        }`}>
-                          {signal.direction}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">
-                        {signal.confidence || 0}/100
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-400">
-                        {signal.setup_type || '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          signal.delivery_status === 'sent'     ? 'bg-green-900 text-green-400' :
-                          signal.delivery_status === 'no_trade' ? 'bg-gray-800 text-gray-500'  :
-                          signal.delivery_status === 'rejected' ? 'bg-red-900 text-red-400'    :
-                          'bg-yellow-900 text-yellow-400'
-                        }`}>
-                          {signal.delivery_status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600">
-                        {signal.created_at?.slice(0,16).replace('T',' ')}
-                      </td>
-                    </tr>
-                  ))}
+                  {signals.map(signal => {
+                    let perfLog = {}
+                    try { perfLog = JSON.parse(signal.performance_log || '{}') } catch {}
+                    return (
+                      <tr key={signal.id} className="hover:bg-gray-800 transition">
+                        <td className="px-4 py-3 text-sm">{signal.pair || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`text-sm font-bold ${
+                            signal.direction === 'LONG'  ? 'text-green-400' :
+                            signal.direction === 'SHORT' ? 'text-red-400'   :
+                            'text-gray-500'
+                          }`}>
+                            {signal.direction}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-300">
+                          {signal.confidence || 0}/100
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-400">
+                          {signal.setup_type || '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            signal.delivery_status === 'sent'     ? 'bg-green-900 text-green-400' :
+                            signal.delivery_status === 'no_trade' ? 'bg-gray-800 text-gray-500'  :
+                            signal.delivery_status === 'rejected' ? 'bg-red-900 text-red-400'    :
+                            'bg-yellow-900 text-yellow-400'
+                          }`}>
+                            {signal.delivery_status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {perfLog.result && (
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              perfLog.result === 'win'     ? 'bg-green-900 text-green-400' :
+                              perfLog.result === 'loss'    ? 'bg-red-900 text-red-400'    :
+                              perfLog.result === 'partial' ? 'bg-yellow-900 text-yellow-400' :
+                              'bg-gray-800 text-gray-500'
+                            }`}>
+                              {perfLog.result}
+                              {perfLog.final_pnl ? ` (${perfLog.final_pnl > 0 ? '+' : ''}${perfLog.final_pnl}%)` : ''}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-600">
+                          {signal.created_at?.slice(0,16).replace('T',' ')}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
               {signals.length === 0 && (
@@ -428,8 +487,7 @@ export default function Dashboard() {
                 <thead className="bg-gray-800">
                   <tr>
                     {['Phone','Plan','Status','Joined'].map(h => (
-                      <th key={h}
-                        className="px-4 py-3 text-left text-gray-400 text-sm">
+                      <th key={h} className="px-4 py-3 text-left text-gray-400 text-sm">
                         {h}
                       </th>
                     ))}
