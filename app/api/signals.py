@@ -117,10 +117,7 @@ def approve_signal(thread_id: str, request: ApproveRequest):
 
     state = pending["state"]
 
-    # Build fresh graph and resume
-    graph  = build_graph()
-    config = {"configurable": {"thread_id": thread_id}}
-
+    # Update state with human decision
     updated_state = {
         **state,
         "human_approved": request.approved,
@@ -129,7 +126,57 @@ def approve_signal(thread_id: str, request: ApproveRequest):
         )
     }
 
-    final_state = graph.invoke(updated_state, config=config)
+    # If rejected → skip pipeline entirely
+    if not request.approved:
+        updated_state["delivery_status"] = "rejected"
+        save_signal(thread_id, updated_state)
+        delete_pending_signal(thread_id)
+        return {
+            "message":         "Signal rejected",
+            "thread_id":       thread_id,
+            "approved":        False,
+            "delivery_status": "rejected",
+            "whatsapp_message": ""
+        }
+
+    # If approved → run only messaging + compliance + delivery
+    # Skip research and QA (signal already created)
+    from app.agents.messaging_agent import messaging_agent
+    from app.agents.compliance_agent import compliance_agent
+    from app.graph import delivery_node
+
+    # Run messaging
+    updated_state = messaging_agent(updated_state)
+
+    # Run compliance
+    updated_state = compliance_agent(updated_state)
+
+    # Run delivery
+    if updated_state["compliance_passed"]:
+        updated_state = delivery_node(updated_state)
+    else:
+        # Compliance failed → try messaging again
+        updated_state = messaging_agent(updated_state)
+        updated_state = compliance_agent(updated_state)
+        updated_state = delivery_node(updated_state)
+
+    # Broadcast to WhatsApp subscribers
+    message = updated_state.get("final_whatsapp_message", "")
+    if message:
+        from app.whatsapp import broadcast_signal
+        from app.core.database import get_subscribers
+        subscribers = get_subscribers(active=True)
+        print(f"📱 Broadcasting to {len(subscribers)} subscribers...")
+        if subscribers:
+            broadcast_result = broadcast_signal(message, subscribers)
+            print(f"📤 Broadcast: {broadcast_result['sent']} sent, {broadcast_result['failed']} failed")
+        else:
+            print("⚠️ No subscribers yet")
+    else:
+        print("⚠️ No message to broadcast")
+
+    final_state = updated_state
+    
     save_signal(thread_id, final_state)
 
     # Remove from pending
@@ -215,4 +262,51 @@ def switch_model(model: str):
     return {
         "message":    f"Switched to {model}",
         "model_name": get_active_model_name()
+    }
+@router.get("/performance/summary")
+def get_performance_summary():
+    """Get overall performance stats"""
+    from app.core.database import get_all_signals
+    import json
+
+    signals = get_all_signals()
+    sent    = [s for s in signals if s.get("delivery_status") == "sent"]
+
+    total   = len(sent)
+    wins    = 0
+    losses  = 0
+    partial = 0
+    pending = 0
+    total_pnl = 0.0
+
+    for s in sent:
+        try:
+            log    = json.loads(s.get("performance_log") or "{}")
+            result = log.get("result", "pending")
+            pnl    = log.get("final_pnl", 0.0) or 0.0
+
+            if result == "win":
+                wins += 1
+                total_pnl += pnl
+            elif result == "loss":
+                losses += 1
+                total_pnl += pnl
+            elif result == "partial":
+                partial += 1
+                total_pnl += pnl
+            else:
+                pending += 1
+        except Exception:
+            pending += 1
+
+    win_rate = round((wins / total * 100)) if total > 0 else 0
+
+    return {
+        "total_signals": total,
+        "wins":          wins,
+        "losses":        losses,
+        "partial":       partial,
+        "pending":       pending,
+        "win_rate":      win_rate,
+        "total_pnl":     round(total_pnl, 2)
     }

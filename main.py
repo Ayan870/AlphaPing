@@ -1,14 +1,36 @@
 # main.py
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.api.router import router
 
+
+@asynccontextmanager
+async def lifespan(app):
+    # ── Startup ──────────────────────────────
+    import asyncio
+    init_db()
+    from app.services.signal_service import start_signal_service
+    from app.services.websocket_service import start_websocket_streams
+    from scripts.scheduler import start_scheduler
+    from app.services.performance_tracker import start_performance_tracker
+    start_signal_service()
+    asyncio.ensure_future(start_websocket_streams())
+    start_scheduler()
+    start_performance_tracker()
+    print(f"✅ {settings.APP_NAME} API started")
+    yield
+    # ── Shutdown ─────────────────────────────
+    print("👋 AlphaPing shutting down...")
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="WhatsApp-First Crypto Signal Copilot",
-    version=settings.APP_VERSION
+    version=settings.APP_VERSION,
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -35,16 +57,3 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy", "service": settings.APP_NAME}
-
-
-@app.on_event("startup")
-async def startup():
-    init_db()
-    from app.services.signal_service import start_signal_service
-    from app.services.websocket_service import start_websocket_streams
-    from scripts.scheduler import start_scheduler
-    import asyncio
-    start_signal_service()
-    asyncio.ensure_future(start_websocket_streams())
-    start_scheduler()
-    print(f"✅ {settings.APP_NAME} API started")
